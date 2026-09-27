@@ -1,23 +1,22 @@
 import { useState, useMemo } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useEntry } from '@/contexts/EntryContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { usersApi, interactionsApi, API_URL } from '@/lib/api';
+import { usersApi, matchesApi, API_URL } from '@/lib/api';
 import { Heart, X, MapPin, Briefcase, User, Cigarette, Wine, Dog, BedDouble, Loader2, Users, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 
 type Candidate = {
-  email: string;
+  user_id: string;
   name: string;
   city: string;
   neighborhood: string;
   questionnaire: Record<string, any>;
   photos: string[];
   profile_picture_url?: string;
-  same_location: boolean;
   location_match_score: number;
 };
 
@@ -85,6 +84,15 @@ function ProfileCard({ candidate, onLike, onPass, isActing }: {
           />
         </div>
 
+        {/* Budget */}
+        <div className="rounded-lg bg-muted/50 p-3">
+          <p className="text-xs font-medium text-muted-foreground mb-1">Monthly Budget</p>
+          <p className="text-sm font-medium">
+            {living.budget_min} – {living.budget_max} TND
+            {living.budget_flexibility && <span className="text-muted-foreground ml-2">({living.budget_flexibility})</span>}
+          </p>
+        </div>
+
         {/* Hobbies */}
         {lifestyle.hobbies && (
           <div>
@@ -133,15 +141,15 @@ function DetailChip({ icon: Icon, label, value }: { icon: any; label: string; va
 }
 
 export default function SetupMatchPage() {
-  const { user } = useAuth();
+  const { user } = useEntry();
   const queryClient = useQueryClient();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isActing, setIsActing] = useState(false);
   const [exitDirection, setExitDirection] = useState<'left' | 'right' | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['setup-match-candidates'],
-    queryFn: () => usersApi.candidates(),
+    queryKey: ['setup-match-candidates', user?.user_id],
+    queryFn: () => usersApi.candidates(user!.user_id),
     enabled: !!user,
     staleTime: 30_000,
   });
@@ -162,7 +170,7 @@ export default function SetupMatchPage() {
     if (!currentCandidate || isActing) return;
     setIsActing(true);
     try {
-      await interactionsApi.like(currentCandidate.email);
+      await matchesApi.like(user!.user_id, currentCandidate.user_id);
       toast.success(`Liked ${currentCandidate.name}! Agents are negotiating...`, {
         icon: <Sparkles size={16} />,
       });
@@ -178,7 +186,7 @@ export default function SetupMatchPage() {
     if (!currentCandidate || isActing) return;
     setIsActing(true);
     try {
-      await interactionsApi.pass(currentCandidate.email);
+      await matchesApi.pass(user!.user_id, currentCandidate.user_id);
       advanceCard('left');
     } catch (err: any) {
       toast.error(err.message || 'Failed to pass');
@@ -222,7 +230,7 @@ export default function SetupMatchPage() {
             </p>
             <AnimatePresence mode="wait">
               <motion.div
-                key={currentCandidate.email}
+                key={currentCandidate.user_id}
                 initial={{ opacity: 0, x: 50, scale: 0.95 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
                 exit={{

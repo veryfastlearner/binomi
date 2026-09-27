@@ -1,308 +1,224 @@
 # database.py
-# MongoDB storage for user data
+# JSON file-based storage for user data (replaces MongoDB)
 
 from datetime import datetime
-from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure
+from typing import Optional
+from .storage import (
+    read_all, write_all, get_by_id, upsert, delete, find_one, find_many,
+    generate_id, get_timestamp, DATA_FILES
+)
+from .config import DEBUG
 
-import os
-from .config import MONGODB_URI, MONGODB_DATABASE, USERS_COLLECTION, MATCHES_COLLECTION, INTERACTIONS_COLLECTION
-
-DEBUG = os.getenv("DEBUG", "false").lower() == "true"
-
-
-def _get_client():
-    """Get MongoDB client"""
-    return MongoClient(MONGODB_URI)
-
-
-def _get_collection():
-    """Get users collection"""
-    client = _get_client()
-    db = client[MONGODB_DATABASE]
-    return db[USERS_COLLECTION]
+USERS_FILE = DATA_FILES["users"]
+QUESTIONNAIRES_FILE = DATA_FILES["questionnaires"]
+MATCHES_FILE = DATA_FILES["matches"]
+NEGOTIATION_LOGS_FILE = DATA_FILES["negotiation_logs"]
+INTERACTIONS_FILE = "interactions.json"
 
 
-def _get_matches_collection():
-    """Get matches collection"""
-    client = _get_client()
-    db = client[MONGODB_DATABASE]
-    return db[MATCHES_COLLECTION]
-
-
-def _get_interactions_collection():
-    """Get interactions collection (likes/passes)"""
-    client = _get_client()
-    db = client[MONGODB_DATABASE]
-    return db[INTERACTIONS_COLLECTION]
-
-
-def _ensure_index():
-    """Ensure email index for fast lookups"""
-    col = _get_collection()
-    col.create_index("email", unique=True)
+def _ensure_interactions_file():
+    """Ensure interactions.json exists"""
+    import os
+    from .config import DATA_DIR
+    path = os.path.join(DATA_DIR, INTERACTIONS_FILE)
+    if not os.path.exists(path):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({}, f)
 
 
 def save_user(
-    email,
-    name,
-    questionnaire,
-    google_id=None,
-    profile_picture=None,
-    password_hash=None,
-    phone_number=None,
-):
-    """
-    Save or update user data based on email.
-
-    Supports both Google OAuth users and email/password users.
-    Only fields explicitly passed are written — existing fields
-    (e.g. password_hash on a Google user) are never overwritten
-    with None.
-    """
-    col = _get_collection()
-    now = datetime.utcnow().isoformat()
-    existing = col.find_one({"email": email})
-
+    user_id: str,
+    name: str,
+    questionnaire: dict,
+    photos: list = None,
+    profile_picture: str = None,
+) -> bool:
+    """Save or update user data based on user_id (email)."""
+    import json
+    import os
+    from .config import DATA_DIR
+    
+    data = read_all("users")
+    now = get_timestamp()
+    existing = data.get(user_id)
+    
     doc = {
-        "email": email,
+        "user_id": user_id,
         "name": name,
         "questionnaire": questionnaire,
         "updated_at": now,
     }
-
-    # Only set optional fields if provided — never overwrite with None
-    if google_id:
-        doc["google_id"] = google_id
+    
+    if photos:
+        doc["photos"] = photos
     if profile_picture:
         doc["profile_picture_url"] = profile_picture
-    if password_hash:
-        doc["password_hash"] = password_hash
-    if phone_number:
-        doc["phone_number"] = phone_number
-
     if existing:
-        col.update_one({"email": email}, {"$set": doc})
+        doc["created_at"] = existing.get("created_at", now)
     else:
         doc["created_at"] = now
-        col.insert_one(doc)
-
+    
+    data[user_id] = doc
+    write_all("users", data)
+    
     if DEBUG and questionnaire:
-        db_name = col.database.name
-        print(f"[DB] Questionnaire saved for {email} in database: {db_name!r}, collection: {col.name!r}")
+        print(f"[DB] Questionnaire saved for {user_id}")
     return True
 
 
-def create_email_user(email, name, password_hash, phone_number=None):
-    """
-    Create a brand new email/password user.
-    Returns True on success, raises ValueError if email already exists.
-    """
-    col = _get_collection()
-
-    if col.find_one({"email": email}):
-        raise ValueError(f"An account with {email} already exists.")
-
-    now = datetime.utcnow().isoformat()
-    doc = {
-        "email": email,
-        "name": name,
-        "questionnaire": {},
-        "password_hash": password_hash,
-        "auth_method": "email",
-        "created_at": now,
-        "updated_at": now,
-    }
-    if phone_number:
-        doc["phone_number"] = phone_number
-
-    col.insert_one(doc)
-    return True
-
-
-def get_password_hash(email) -> str | None:
-    """
-    Retrieve the stored password hash for an email user.
-    Returns None if user doesn't exist or has no password (Google-only user).
-    """
-    col = _get_collection()
-    user = col.find_one({"email": email}, {"password_hash": 1})
-    if not user:
-        return None
-    return user.get("password_hash")
-
-
-def update_last_login(email, google_id=None, profile_picture=None):
-    """Update last login timestamp and optionally sync Google profile fields."""
-    col = _get_collection()
-    updates = {"last_login_at": datetime.utcnow().isoformat()}
-    if google_id:
-        updates["google_id"] = google_id
-    if profile_picture:
-        updates["profile_picture_url"] = profile_picture
-    col.update_one({"email": email}, {"$set": updates})
-
-
-def get_user(email):
-    """
-    Retrieve user by email.
-    Strips password_hash from the returned dict for safety.
-    """
-    col = _get_collection()
-    user = col.find_one({"email": email})
-    if user:
-        user["_id"] = str(user["_id"])
-        user.pop("password_hash", None)   # never expose hash outside auth layer
+def get_user(user_id: str) -> Optional[dict]:
+    """Retrieve user by user_id (email)."""
+    user = get_by_id("users", "user_id", user_id)
     return user
 
 
-def get_user_by_google_id(google_id):
-    """Retrieve user by Google ID."""
-    col = _get_collection()
-    user = col.find_one({"google_id": google_id})
-    if user:
-        user["_id"] = str(user["_id"])
-        user.pop("password_hash", None)
-    return user
+def get_all_users() -> list:
+    """Get all users."""
+    data = read_all("users")
+    return list(data.values())
 
 
-def user_exists(email):
+def user_exists(user_id: str) -> bool:
     """Check if a user exists."""
-    return _get_collection().find_one({"email": email}) is not None
+    return get_by_id("users", "user_id", user_id) is not None
 
-
-def get_all_users():
-    """Get all users — strips password hashes."""
-    col = _get_collection()
-    users = list(col.find({}))
-    for u in users:
-        u["_id"] = str(u["_id"])
-        u.pop("password_hash", None)
-    return users
-
-
-def test_connection():
-    """Test MongoDB connection."""
-    try:
-        client = _get_client()
-        client.admin.command("ping")
-        return True
-    except ConnectionFailure:
-        return False
-
-
-# ─────────────────────────────────────────────
-# MATCHES
-# ─────────────────────────────────────────────
 
 def save_match_to_db(record: dict) -> bool:
-    """
-    Persist a match record to MongoDB.
-    record must contain match_id as a unique identifier.
-    Upserts so re-running analyze on the same room updates rather than duplicates.
-    """
-    col = _get_matches_collection()
-    col.update_one(
-        {"match_id": record["match_id"]},
-        {"$set": record},
-        upsert=True,
-    )
+    """Persist a match record to JSON."""
+    match_id = record.get("match_id") or generate_id()
+    record["match_id"] = match_id
+    data = read_all("matches")
+    data[match_id] = record
+    write_all("matches", data)
     return True
 
 
 def get_matches_for_user_from_db(user_id: str, include_incompatible: bool = False) -> list:
-    """
-    Fetch all matches involving a user from MongoDB.
-    Queries both user_a_id and user_b_id fields.
-    Strips MongoDB _id from results.
-    """
-    col = _get_matches_collection()
-    query = {"$or": [{"user_a_id": user_id}, {"user_b_id": user_id}]}
-
-    if not include_incompatible:
-        query["status"] = {"$ne": "incompatible"}
-
-    matches = list(col.find(query, {"_id": 0}).sort("created_at", -1))
+    """Fetch all matches involving a user from JSON."""
+    data = read_all("matches")
+    matches = []
+    for match in data.values():
+        if match.get("user_a_id") == user_id or match.get("user_b_id") == user_id:
+            if not include_incompatible and match.get("status") == "incompatible":
+                continue
+            matches.append(match)
+    matches.sort(key=lambda m: m.get("created_at", ""), reverse=True)
     return matches
 
 
-def get_match_by_id_from_db(match_id: str) -> dict | None:
+def get_match_by_id_from_db(match_id: str) -> Optional[dict]:
     """Fetch a single match by match_id."""
-    col = _get_matches_collection()
-    match = col.find_one({"match_id": match_id}, {"_id": 0})
-    return match
+    return get_by_id("matches", "match_id", match_id)
 
 
 def get_match_counts_for_user(user_id: str) -> dict:
-    """
-    Return a summary count of match statuses for a user.
-    Useful for showing badge counts in the UI.
-    """
-    col = _get_matches_collection()
-    pipeline = [
-        {"$match": {"$or": [{"user_a_id": user_id}, {"user_b_id": user_id}]}},
-        {"$group": {"_id": "$status", "count": {"$sum": 1}}},
-    ]
-    results = list(col.aggregate(pipeline))
+    """Return a summary count of match statuses for a user."""
+    matches = get_matches_for_user_from_db(user_id, include_incompatible=True)
     counts = {"strong": 0, "conditional": 0, "incompatible": 0}
-    for r in results:
-        if r["_id"] in counts:
-            counts[r["_id"]] = r["count"]
+    for m in matches:
+        status = m.get("status")
+        if status in counts:
+            counts[status] += 1
     counts["total"] = sum(counts.values())
     return counts
 
 
-# ─────────────────────────────────────────────
-# INTERACTIONS (likes / passes)
-# ─────────────────────────────────────────────
-
-def save_interaction(user_email: str, target_email: str, action: str) -> bool:
-    """Save a like/pass interaction. Upserts so repeated actions just update."""
-    col = _get_interactions_collection()
-    col.update_one(
-        {"user_email": user_email, "target_email": target_email},
-        {"$set": {
-            "user_email": user_email,
-            "target_email": target_email,
-            "action": action,
-            "timestamp": datetime.utcnow().isoformat(),
-        }},
-        upsert=True,
-    )
+def save_interaction(user_id: str, target_id: str, action: str) -> bool:
+    """Save a like/pass interaction."""
+    import json
+    import os
+    from .config import DATA_DIR
+    
+    _ensure_interactions_file()
+    path = os.path.join(DATA_DIR, INTERACTIONS_FILE)
+    
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    key = f"{user_id}:{target_id}"
+    data[key] = {
+        "user_id": user_id,
+        "target_id": target_id,
+        "action": action,
+        "timestamp": get_timestamp(),
+    }
+    
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
     return True
 
 
-def get_interacted_emails(user_email: str) -> set:
-    """Return set of emails the user has already liked or passed."""
-    col = _get_interactions_collection()
-    docs = col.find({"user_email": user_email}, {"target_email": 1})
-    return {d["target_email"] for d in docs}
+def get_interacted_ids(user_id: str) -> set:
+    """Return set of user_ids the user has already liked or passed."""
+    import json
+    import os
+    from .config import DATA_DIR
+    
+    _ensure_interactions_file()
+    path = os.path.join(DATA_DIR, INTERACTIONS_FILE)
+    
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    return {v["target_id"] for v in data.values() if v["user_id"] == user_id}
 
 
-def has_interaction(user_email: str, target_email: str) -> bool:
+def has_interaction(user_id: str, target_id: str) -> bool:
     """Check if an interaction already exists between two users."""
-    col = _get_interactions_collection()
-    return col.find_one({"user_email": user_email, "target_email": target_email}) is not None
+    import json
+    import os
+    from .config import DATA_DIR
+    
+    _ensure_interactions_file()
+    path = os.path.join(DATA_DIR, INTERACTIONS_FILE)
+    
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    key = f"{user_id}:{target_id}"
+    return key in data
 
 
-# ─────────────────────────────────────────────
-# PHOTOS
-# ─────────────────────────────────────────────
-
-def save_photos_for_user(email: str, photo_urls: list) -> bool:
+def save_photos_for_user(user_id: str, photo_urls: list) -> bool:
     """Save photo URLs for a user (max 2)."""
-    col = _get_collection()
-    col.update_one(
-        {"email": email},
-        {"$set": {"photos": photo_urls[:2], "updated_at": datetime.utcnow().isoformat()}},
-    )
+    user = get_user(user_id)
+    if not user:
+        return False
+    user["photos"] = photo_urls[:2]
+    user["updated_at"] = get_timestamp()
+    data = read_all("users")
+    data[user_id] = user
+    write_all("users", data)
     return True
 
 
-def get_user_photos(email: str) -> list:
+def get_user_photos(user_id: str) -> list:
     """Get photo URLs for a user."""
-    col = _get_collection()
-    user = col.find_one({"email": email}, {"photos": 1})
+    user = get_user(user_id)
     if user:
         return user.get("photos", [])
     return []
+
+
+def save_negotiation_log(match_id: str, conversation: list, analysis: dict, outcome: dict) -> bool:
+    """Save the full negotiation conversation log."""
+    log = {
+        "log_id": generate_id(),
+        "match_id": match_id,
+        "conversation": conversation,
+        "analysis": analysis,
+        "outcome": outcome,
+        "created_at": get_timestamp(),
+    }
+    data = read_all("negotiation_logs")
+    data[log["log_id"]] = log
+    write_all("negotiation_logs", data)
+    return True
+
+
+def get_negotiation_log(match_id: str) -> Optional[dict]:
+    """Get negotiation log for a match."""
+    logs = find_many("negotiation_logs", {"match_id": match_id})
+    if logs:
+        return logs[0]
+    return None

@@ -1,224 +1,171 @@
-# AI Roommate Finder
+# Binomi
 
-An AI-powered roommate matching application where conversational AI agents autonomously negotiate compatibility on behalf of users - going beyond traditional ML scoring to create realistic, phased conversations between user "clones" that respect hard limits, negotiate flexible preferences, and reach a natural verdict.
+AI-powered roommate matching for Tunisia. Built with FastAPI, React, and Groq LLM.
 
----
+## Features
 
-## What Makes This Different
+- **No signup/login** - Just enter your name and start
+- **Questionnaire** - 7 sections covering living preferences, finances, routines, social life, work/lifestyle, personality, and dealbreakers
+- **AI Agent Matching** - Your preferences create an AI "clone" that negotiates with other users' clones using the ACP/1.0 protocol
+- **Phased Conversations** - 4 phases: Introduction, Exploration, Negotiation, Conclusion (~13 turns max)
+- **Match Results** - Strong Match, Conditional Match, or Incompatible with detailed scores
+- **Negotiation Logs** - Full conversation between clones saved and viewable anytime
+- **Tunisia Localized** - TND currency, Tunisian cities/neighborhoods, halal/prayer dealbreakers
 
-Most roommate apps (Diggz, SpareRoom, iROOMit) compare questionnaire answers with a static scoring algorithm. This app creates **AI clones of each user** powered by a custom protocol (ACP/1.0) that drives structured, multi-phase conversations between agents. Each clone knows the user's non-negotiables, budget flexibility, lifestyle preferences, and dealbreakers — and uses that context to negotiate just like a real person would.
+## Tech Stack
 
----
+| Layer | Technology |
+|-------|------------|
+| Frontend | React 18 + Vite + TypeScript + Tailwind CSS + shadcn/ui + Framer Motion |
+| Backend | FastAPI + WebSockets (uvicorn) |
+| Database | Local JSON files (users.json, questionnaires.json, matches.json, negotiation_logs.json) |
+| LLM | Groq API (llama-3.3-70b-versatile) |
+
+## Project Structure
+
+```
+Binomi/
+├── backend/
+│   └── server.py          # FastAPI backend with WebSocket support
+├── frontend/
+│   ├── src/
+│   │   ├── pages/         # React pages (Entry, Questionnaire, Home, SetupMatch, MyClone, MyMatches, NegotiationLog)
+│   │   ├── components/    # UI components (shadcn/ui + custom)
+│   │   ├── contexts/      # EntryContext (user session via localStorage)
+│   │   ├── lib/           # API client
+│   │   └── hooks/         # WebSocket hook
+│   └── package.json
+├── shared/
+│   ├── config.py          # Configuration & Tunisia constants
+│   ├── storage.py         # JSON file storage with atomic writes & locking
+│   ├── database.py        # Data access layer (users, matches, interactions, logs)
+│   ├── questionnaire.py   # 7-section questionnaire schema (50+ fields)
+│   ├── clone.py           # Clone prompt generator (ACP/1.0)
+│   ├── module_registry.py # ACP/1.0 modular context system
+│   └── groq_client.py     # Groq LLM client
+├── data/                  # JSON data files
+│   ├── users.json
+│   ├── questionnaires.json
+│   ├── matches.json
+│   └── negotiation_logs.json
+├── uploads/               # User uploaded photos
+└── requirements.txt       # Python dependencies
+```
 
 ## ACP/1.0 — Agent Compatibility Protocol
 
-ACP is a custom protocol designed for this project that governs how AI agents communicate during roommate compatibility conversations. It replaces monolithic system prompts (~1,800 tokens per turn) with a modular, lazy-loading architecture that cuts token usage by 85-97%.
+Custom protocol for AI agent conversations that reduces token usage by 85-97%:
 
-### Architecture
-
-```
-CORE module (~150 tokens)         ← always loaded
-  Identity, hard constraints, budget rules, non-negotiables,
-  field abbreviation table, message format protocol
-
-LIVING module (~80 tokens)        ← auto-loaded at start
-  Location, lease, room type, occupation, drinking
-
-FINANCIAL module (~80 tokens)     ← lazy: <<MOD:FINANCIAL>>
-ROUTINES module (~80 tokens)      ← lazy: <<MOD:ROUTINES>>
-SOCIAL module (~80 tokens)        ← lazy: <<MOD:SOCIAL>>
-LIFESTYLE module (~80 tokens)     ← lazy: <<MOD:LIFESTYLE>>
-DEALBREAKERS module (~80 tokens)  ← lazy: <<MOD:DEALBREAKERS>>
-```
+- **CORE module** (~150 tokens) — always loaded: identity, hard constraints, budget rules, non-negotiables, ACP schema
+- **LIVING module** (~80 tokens) — auto-loaded: location, lease, room type, occupation
+- **Lazy modules** — injected on-demand via `<<MOD:NAME>>` signals:
+  - FINANCIAL, ROUTINES, SOCIAL, LIFESTYLE, DEALBREAKERS
 
 ### Message Types
 
-Agents communicate using structured ACP message types:
-
 | Type | Purpose | Example |
 |------|---------|---------|
-| `HI` | Introduction | `HI:[loc:Boston/SouthEnd\|bd:800-1200\|rm:Private]` |
+| `HI` | Introduction | `HI:[loc:Tunis/La Marsa|bd:400-800|rm:Private]` |
 | `PFR` | Share preference | `PFR:[slp:night_owl,cln:4(tidy)]` |
-| `CNF` | Flag a conflict | `CNF:[cln:gap_3pts(I'm 5, you're 2)]` |
-| `FLX` | Offer flexibility | `FLX:[bd:can_stretch_to_1300\|condition:great_fit]` |
-| `VRD` | Final verdict | `VRD:[STRONG]\|r=aligned on all priorities\|open=none` |
-
-### Lazy Module Loading
-
-Agents emit `<<MOD:NAME>>` signals during conversation when a topic comes up. The backend detects these, injects the relevant module into the agent's system context, and the agent gains access to that domain's profile data. Each module is injected at most once per conversation.
+| `CNF` | Flag conflict | `CNF:[cln:gap_3pts(I'm 5, you're 2)]` |
+| `FLX` | Offer flexibility | `FLX:[bd:can_stretch_to_900|condition:great_fit]` |
+| `VRD` | Final verdict | `VRD:[STRONG]|r=aligned|open=none` |
 
 ### Conversation Phases
 
-Agent-to-agent conversations are structured into 4 phases with turn budgets:
-
 | Phase | Turns | Focus |
 |-------|-------|-------|
-| Introduction | 3 | Location, budget, top priorities. Early incompatibility detection. |
-| Exploration | 4 | Sleep, cleanliness, guests, WFH, routines. Identify friction points. |
-| Negotiation | 4 | Address conflicts directly. Propose compromises on flexible items. |
-| Conclusion | 2 | Reach a verdict: Strong Match, Conditional, or Incompatible. |
-
-Phase hints are injected into each agent's message context so they know what to focus on. Total conversation: ~13 turns max.
-
-### Verdict Bucketing
-
-After conversation, an LLM-powered analysis scores the match across 5 dimensions (overall, finances, lifestyle, personality, logistics) and assigns one of three statuses:
-
-- **Strong Match** — aligned on priorities, no dealbreaker conflicts
-- **Conditional Match** — promising but 1-2 unresolved topics need human follow-up
-- **Incompatible** — hard non-negotiable conflict detected
-
----
-
-## App Flow
-
-```
-Sign Up (Email/Password or Google OAuth)
-    │
-    ▼
-Fill Questionnaire (7 sections)
-    │
-    ▼
-Home Screen
-    ├── Edit Profile ──────── Update questionnaire + photos → "Updating agent" overlay
-    ├── Chat with My Clone ── Preview your AI clone in natural language
-    ├── Setup Match ────────── Browse profiles (Hinge-style cards) → Like/Pass
-    │                          └── Like triggers background agent negotiation
-    └── My Matches ─────────── View results: Strong / Conditional / Incompatible
-```
-
-### Candidate Filtering
-
-When browsing profiles, the system filters by:
-- **Location** — same city or metro area (Boston metro, NYC metro, SF Bay, etc.)
-- **Gender preference** — bidirectional cross-match (your preference must accept them AND their preference must accept you)
-- **Already seen** — liked/passed profiles are excluded
-
-### Background Negotiation
-
-When a user likes a profile, agents negotiate automatically:
-1. Create AI agents for both users from their questionnaire data
-2. Run the full 4-phase ACP conversation server-side
-3. Auto-analyze compatibility and score across 5 dimensions
-4. Save match result — it appears in My Matches with no manual intervention
-
----
-
-## Architecture
-
-```
-AI-Roommate-Finder/
-├── auth.py                     # Google OAuth + Email/Password auth
-├── session_utils.py            # JWT session tokens (HTTP-only cookies)
-├── app.py                      # Streamlit frontend (legacy, still functional)
-├── backend/
-│   └── server.py               # FastAPI backend, WebSocket, agents, ACP phases
-├── frontend/                   # React UI (Vite + shadcn/ui + Framer Motion)
-│   └── src/
-│       ├── pages/
-│       │   ├── Login.tsx        # Email/password + Google OAuth
-│       │   ├── Questionnaire.tsx # 7-step profile builder + photo upload
-│       │   ├── Home.tsx         # Dashboard with 4 navigation cards
-│       │   ├── SetupMatch.tsx   # Hinge-style profile card browsing
-│       │   ├── MyClone.tsx      # Chat with your own AI clone
-│       │   ├── MyMatches.tsx    # Match results with scores and details
-│       │   └── AgentChat.tsx    # Real-time agent conversation viewer
-│       ├── contexts/
-│       │   └── AuthContext.tsx   # Auth state + session management
-│       └── lib/
-│           └── api.ts           # API client (auth, agents, matches, photos)
-├── shared/
-│   ├── config.py               # Environment variables & constants
-│   ├── database.py             # MongoDB — users, matches, interactions
-│   ├── questionnaire.py        # 7-section questionnaire schema (50+ fields)
-│   ├── clone.py                # Clone prompt generator (delegates to ACP)
-│   ├── module_registry.py      # ACP/1.0 — modular context system
-│   └── groq_client.py          # Groq LLM client (llama-3.3-70b)
-└── uploads/
-    └── photos/                 # User-uploaded profile photos
-```
-
-### Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 18 + Vite + TypeScript + Tailwind CSS + shadcn/ui + Framer Motion |
-| Backend | FastAPI + WebSockets (uvicorn) |
-| Database | MongoDB Atlas |
-| LLM | Groq API (llama-3.3-70b-versatile) |
-| Auth | Google OAuth 2.0 + Email/Password (bcrypt) |
-| Sessions | JWT tokens in HTTP-only cookies (14-day expiry) |
-
----
-
-## Questionnaire Sections
-
-The questionnaire collects 50+ data points across 7 sections:
-
-1. **Living Preferences** — city, neighborhood, occupation, gender, move-in date, lease type, budget range, budget flexibility, room type, bathroom, roommate gender preference, pets, smoking, drinking
-2. **Financial & Utilities** — utilities split, groceries, security deposit, payment style
-3. **Daily Routines** — sleep schedule, wake time, cooking, kitchen sharing, bathroom time, common space usage, cleanliness (1-5 scale), cleaning approach
-4. **Guests & Social** — noise level, overnight guests, guest notice, parties, introvert/extrovert spectrum (1-5 scale)
-5. **Work & Lifestyle** — WFH, quiet hours, schedule predictability, thermostat, hobbies, lifestyle notes
-6. **Personality & Conflict** — conflict style, communication style, roommate relationship preference
-7. **Dealbreakers & Priorities** — non-negotiables (multi-select), top 3 priorities, flexibility items, custom dealbreakers
-
----
+| Introduction | 3 | Location, budget, top priorities |
+| Exploration | 4 | Sleep, cleanliness, guests, WFH, routines |
+| Negotiation | 4 | Address conflicts, propose compromises |
+| Conclusion | 2 | Reach verdict: Strong/Conditional/Incompatible |
 
 ## Setup
 
-### 1. Clone & install dependencies
+### 1. Backend
 
 ```bash
-git clone <repo-url>
 cd AI-Roommate-Finder
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment
-
-Create a `.env` file in the project root:
-
+Create `.env`:
 ```env
-# MongoDB Atlas
-MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/
-MONGODB_DATABASE=roommate_finder
-
-# Groq API
 GROQ_API_KEY=your_groq_api_key
 GROQ_MODEL=llama-3.3-70b-versatile
-
-# Google OAuth (optional — app works without it)
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-GOOGLE_REDIRECT_URI=http://localhost:8080/auth/callback
-
-# Backend
 BACKEND_HOST=localhost
 BACKEND_PORT=8000
-
-# Frontend
 FRONTEND_URL=http://localhost:8080
-
-# Session
-JWT_SECRET=your-random-secret-here
-
-# Debug — set true to see full LLM prompts and ACP module injections
+DATA_DIR=./data
 DEBUG=false
 ```
 
-### 3. Run the app
-
+Run:
 ```bash
-# Terminal 1 — FastAPI backend
-python "backend /server.py"
-
-# Terminal 2 — React frontend
-cd frontend && npm install && npm run dev
+python backend/server.py
 ```
 
-Open `http://localhost:8080` in your browser.
+### 2. Frontend
 
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
----
+Open `http://localhost:8080`
 
+## Data Storage
+
+All data stored in local JSON files under `data/`:
+
+- **users.json** — User profiles with questionnaires and photos
+- **questionnaires.json** — (Reserved for future separation)
+- **matches.json** — Match results with analysis scores
+- **negotiation_logs.json** — Full ACP conversations between clones
+
+Atomic write-then-rename with file locking prevents corruption.
+
+## API Endpoints
+
+### Entry
+- `POST /entry` — Create user entry (name + optional questionnaire)
+- `GET /entry/{user_id}` — Get user profile
+- `PUT /entry/{user_id}` — Update profile
+
+### Questionnaire
+- `GET /questionnaire/schema` — Get full questionnaire schema
+
+### Matches
+- `POST /matches/like/{user_id}` — Like a profile (triggers background negotiation)
+- `POST /matches/pass/{user_id}` — Pass on a profile
+- `GET /matches/{user_id}` — List matches for user
+- `GET /matches/counts/{user_id}` — Get match counts
+- `GET /matches/detail/{match_id}` — Get match with negotiation log
+
+### Candidates
+- `GET /users/candidates/{user_id}` — Browse compatible profiles
+
+### Clone Chat
+- `GET /clone/intro/{user_id}` — Get clone greeting
+- `POST /clone/chat/{user_id}` — Chat with your clone
+
+### Negotiation Logs
+- `GET /negotiation-log/{match_id}` — View full agent conversation
+
+### Photos
+- `POST /entry/{user_id}/photos` — Upload photos (max 2)
+
+### WebSocket
+- `WS /ws/{room_id}` — Real-time agent conversation streaming
+
+## Tunisia Localization
+
+- **Currency**: TND (Tunisian Dinar) — د.ت
+- **Cities**: Tunis, Sfax, Sousse, Kairouan, Bizerte, Gabes, Ariana, Gafsa, Monastir, Ben Arous, Kasserine, Medenine, Nabeul, Jendouba, Kef, Siliana, Mahdia, Tataouine, Tozeur, Zaghouan
+- **Neighborhoods**: Per-city neighborhoods (e.g., Tunis: La Marsa, Carthage, Sidi Bou Said, El Menzah...)
+- **Dealbreakers**: Halal kitchen required, Prayer space needed
+
+## License
+
+MIT

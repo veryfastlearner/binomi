@@ -1,15 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate, Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useEntry } from '@/contexts/EntryContext';
+import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { healthApi, matchesApi } from '@/lib/api';
 import { CheckCircle, XCircle, Users, MessageSquare, FileText, Zap, Bot } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function HomePage() {
-  const { user, hasQuestionnaire } = useAuth();
+  const { user, hasQuestionnaire } = useEntry();
   const navigate = useNavigate();
   const [health, setHealth] = useState<string | null>(null);
   const [matchCount, setMatchCount] = useState(0);
@@ -21,9 +21,9 @@ export default function HomePage() {
     }
     healthApi.check().then(r => setHealth(r.status)).catch(() => setHealth('error'));
     if (user) {
-      matchesApi.counts(user.email).then(r => setMatchCount(r.total)).catch(() => {});
+      matchesApi.counts(user.user_id).then(r => setMatchCount(r.total)).catch(() => {});
     }
-  }, [user, hasQuestionnaire]);
+  }, [user, hasQuestionnaire, navigate]);
 
   const cards = [
     { to: '/questionnaire', icon: FileText, title: 'Edit Profile', desc: 'Update your questionnaire', color: 'text-primary' },
@@ -56,19 +56,17 @@ export default function HomePage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {cards.map((c, i) => (
             <motion.div key={c.to} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
-              <Link to={c.to}>
-                <Card className="cursor-pointer border-0 shadow-card transition-shadow hover:shadow-elevated">
-                  <CardContent className="flex items-center gap-4 p-5">
-                    <div className={`rounded-xl bg-accent p-3 ${c.color}`}>
-                      <c.icon size={22} />
-                    </div>
-                    <div>
-                      <p className="font-display font-semibold">{c.title}</p>
-                      <p className="text-sm text-muted-foreground">{c.desc}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+              <Card className="cursor-pointer border-0 shadow-card transition-shadow hover:shadow-elevated">
+                <CardContent className="flex items-center gap-4 p-5">
+                  <div className={`rounded-xl bg-accent p-3 ${c.color}`}>
+                    <c.icon size={22} />
+                  </div>
+                  <div>
+                    <p className="font-display font-semibold">{c.title}</p>
+                    <p className="text-sm text-muted-foreground">{c.desc}</p>
+                  </div>
+                </CardContent>
+              </Card>
             </motion.div>
           ))}
         </div>

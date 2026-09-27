@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useEntry } from '@/contexts/EntryContext';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,7 +11,7 @@ import { motion } from 'framer-motion';
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 export default function MyClonePage() {
-  const { user, hasQuestionnaire } = useAuth();
+  const { user, hasQuestionnaire } = useEntry();
   const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -25,7 +25,7 @@ export default function MyClonePage() {
       return;
     }
     cloneApi
-      .intro()
+      .intro(user!.user_id)
       .then(({ intro }) => {
         setMessages([{ role: 'assistant', content: intro }]);
       })
@@ -38,7 +38,7 @@ export default function MyClonePage() {
         ]);
       })
       .finally(() => setIntroLoaded(true));
-  }, [hasQuestionnaire, navigate]);
+  }, [hasQuestionnaire, navigate, user?.user_id]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -53,7 +53,7 @@ export default function MyClonePage() {
     setLoading(true);
     try {
       const history = messages.map((m) => ({ role: m.role, content: m.content }));
-      const { reply } = await cloneApi.chat(text, history);
+      const { reply } = await cloneApi.chat(user!.user_id, text, history);
       setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
     } catch (err: any) {
       setMessages((prev) => [

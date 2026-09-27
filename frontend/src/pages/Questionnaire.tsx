@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@/contexts/AuthContext';
-import { authApi, photosApi, API_URL } from '@/lib/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEntry } from '@/contexts/EntryContext';
+import { entryApi, photosApi, API_URL } from '@/lib/api';
 import { AppLayout } from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,31 +17,27 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Check, Loader2, Upload, X, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 
-
 type Q = Record<string, Record<string, unknown>>;
 
 const CITY_OPTIONS = [
-  'Boston', 'Cambridge', 'Somerville', 'Brookline', 'Allston', 'Brighton',
-  'Medford', 'Watertown', 'Newton', 'Quincy',
-  'New York', 'Brooklyn', 'Queens', 'Manhattan', 'Bronx',
-  'San Francisco', 'Oakland', 'Berkeley', 'San Jose', 'Palo Alto',
-  'Los Angeles', 'Chicago', 'Seattle', 'Austin', 'Denver',
-  'Portland', 'Philadelphia', 'Washington DC', 'Miami', 'Atlanta',
+  'Tunis', 'Sfax', 'Sousse', 'Kairouan', 'Bizerte', 'Gabes', 'Ariana',
+  'Gafsa', 'Monastir', 'Ben Arous', 'Kasserine', 'Medenine', 'Nabeul',
+  'Jendouba', 'Kef', 'Siliana', 'Mahdia', 'Tataouine', 'Tozeur', 'Zaghouan',
   'Other',
 ];
 
 const SECTIONS = [
   {
-    key: 'living', title: '🏡 Living Preferences', fields: [
+    key: 'living', title: '🏠 Living Preferences', fields: [
       { key: 'city', label: 'City', type: 'select', required: true, options: CITY_OPTIONS },
-      { key: 'neighborhood', label: 'Neighborhood (optional)', type: 'text', placeholder: 'e.g. South Boston, Back Bay, Downtown' },
+      { key: 'neighborhood', label: 'Neighborhood (optional)', type: 'text', placeholder: 'e.g. La Marsa, Carthage, Centre Ville' },
       { key: 'occupation', label: 'Occupation', type: 'select', required: true, options: ['Student', 'Working Professional', 'Freelancer / Self-employed', 'Between jobs', 'Other'] },
       { key: 'gender', label: 'Your gender', type: 'select', required: true, options: ['Man', 'Woman', 'Non-binary', 'Prefer not to say'] },
       { key: 'move_in_date', label: 'Move-in date', type: 'select', options: ['ASAP', 'Within 1 month', '1–3 months', '3–6 months', 'Flexible'] },
       { key: 'lease_type', label: 'Lease preference', type: 'select', options: ['Month-to-month', '6-month lease', '1-year lease', 'No preference'] },
-      { key: 'budget_min', label: 'Min budget ($)', type: 'number', required: true, min: 300, max: 5000, default: 800 },
-      { key: 'budget_max', label: 'Max budget ($)', type: 'number', required: true, min: 300, max: 5000, default: 1500 },
-      { key: 'budget_flexibility', label: 'Budget flexibility', type: 'select', required: true, options: ['Hard limit', 'Can flex ~$100', 'Can flex ~$200', 'Fairly flexible'] },
+      { key: 'budget_min', label: 'Min budget (TND)', type: 'number', required: true, min: 200, max: 2000, default: 400 },
+      { key: 'budget_max', label: 'Max budget (TND)', type: 'number', required: true, min: 200, max: 2000, default: 1000 },
+      { key: 'budget_flexibility', label: 'Budget flexibility', type: 'select', required: true, options: ['Hard limit', 'Can flex ~50 TND', 'Can flex ~100 TND', 'Fairly flexible'] },
       { key: 'room_type', label: 'Room type', type: 'select', required: true, options: ['Private room', 'Shared room', 'Either is fine'] },
       { key: 'bathroom_preference', label: 'Bathroom', type: 'select', options: ['Private', 'Shared with 1', 'Shared 2+', 'No preference'] },
       { key: 'roommate_gender', label: 'Roommate gender pref', type: 'select', required: true, options: ['Same gender only', 'Any gender', 'No preference'] },
@@ -55,7 +51,7 @@ const SECTIONS = [
       { key: 'utilities_split', label: 'Split utilities', type: 'select', options: ['Split equally', 'Split by usage/room size', 'Included in rent', 'Discuss case by case'] },
       { key: 'groceries_split', label: 'Shared groceries', type: 'select', options: ['Completely separate', 'Split basics', 'Fully shared', 'Open to discussing'] },
       { key: 'security_deposit', label: 'Security deposit', type: 'select', options: ['Yes up to 1 month', 'Yes up to 2 months', 'Need to split', 'Not sure'] },
-      { key: 'payment_style', label: 'Shared payments', type: 'select', options: ['One pays + Venmo/Zelle', 'Each pays share', 'Shared app', 'No preference'] },
+      { key: 'payment_style', label: 'Shared payments', type: 'select', options: ['One pays + transfer', 'Each pays share', 'Shared app', 'No preference'] },
     ]
   },
   {
@@ -84,7 +80,7 @@ const SECTIONS = [
       { key: 'work_from_home', label: 'Work from home', type: 'select', options: ['Full-time remote', 'Hybrid', 'No/office daily', 'Varies'] },
       { key: 'quiet_hours_needed', label: 'Quiet hours for calls', type: 'select', options: ['Yes frequently', 'Occasionally', 'Rarely/headphones', 'No'] },
       { key: 'schedule_predictability', label: 'Schedule predictability', type: 'select', options: ['Very consistent', 'Mostly consistent', 'Unpredictable/shift', 'Changes by season'] },
-      { key: 'temperature_preference', label: 'Thermostat', type: 'select', options: ['Cool', 'Moderate', 'Warm', 'No preference'] },
+      { key: 'temperature_preference', label: 'Thermostat', type: 'select', options: ['Cool (below 20°C)', 'Moderate (20–22°C)', 'Warm (above 22°C)', 'No preference'] },
       { key: 'hobbies', label: 'Hobbies/interests', type: 'text', placeholder: 'gaming, cooking, hiking…' },
       { key: 'lifestyle_notes', label: 'Other notes', type: 'textarea' },
     ]
@@ -98,7 +94,7 @@ const SECTIONS = [
   },
   {
     key: 'dealbreakers', title: '🚫 Dealbreakers & Priorities', fields: [
-      { key: 'non_negotiables', label: 'Non-negotiables (select at least 1)', type: 'multiselect', required: true, options: ['No smoking indoors', 'No pets', 'No overnight guests', 'Strict quiet hours', 'Kitchen very clean', 'No parties ever', 'Same gender only', 'Budget hard cap', 'Must be okay with my pet(s)', 'Non-smoking only'] },
+      { key: 'non_negotiables', label: 'Non-negotiables (select at least 1)', type: 'multiselect', required: true, options: ['No smoking indoors', 'No pets', 'No overnight guests', 'Strict quiet hours', 'Kitchen very clean', 'No parties ever', 'Same gender only', 'Budget hard cap', 'Must be okay with my pet(s)', 'Non-smoking only', 'Halal kitchen required', 'Prayer space needed'] },
       { key: 'top_priorities', label: 'Top 3 priorities (max 3)', type: 'multiselect', required: true, max: 3, options: ['Compatible sleep', 'Cleanliness', 'Quiet/work time', 'Budget', 'Pet-friendly', 'Social energy', 'Location', 'Communication', 'Guest/party preferences'] },
       { key: 'flexible_on', label: 'Most flexible on', type: 'multiselect', options: ['Budget', 'Move-in date', 'Lease length', 'Chore split', 'Grocery', 'Guest frequency', 'Noise', 'Temperature'] },
       { key: 'custom_dealbreaker', label: 'Other dealbreakers', type: 'text', placeholder: 'Anything else?' },
@@ -106,65 +102,11 @@ const SECTIONS = [
   },
 ];
 
-const BACKEND_TO_FRONTEND: Record<string, string> = {
-  'Hard limit — cannot go over': 'Hard limit',
-  'Can flex up to ~$100': 'Can flex ~$100',
-  'Can flex up to ~$200': 'Can flex ~$200',
-  'Fairly flexible if the fit is right': 'Fairly flexible',
-  'Private bathroom': 'Private',
-  'Shared with 1 person': 'Shared with 1',
-  'Shared with 2+ people': 'Shared 2+',
-  'I love pets but don\'t have any': 'I love pets',
-  'Allergic to pets': 'Allergic',
-  'Non-smoking household only': 'Non-smoking only',
-};
-
-function normalizeQuestionnaireForForm(q: Record<string, unknown> | null | undefined): Q {
-  const defaults = getDefaultValues();
-  if (!q || typeof q !== 'object') return defaults;
-  const init: Q = {};
-  SECTIONS.forEach(s => {
-    const section = q[s.key];
-    init[s.key] = { ...defaults[s.key] };
-    if (section && typeof section === 'object' && !Array.isArray(section)) {
-      const sectionObj = section as Record<string, unknown>;
-      for (const f of s.fields) {
-        const val = sectionObj[f.key];
-        if (val === undefined) continue;
-        if (Array.isArray(val)) {
-          (init[s.key] as Record<string, unknown>)[f.key] = val.map(v =>
-            typeof v === 'string' && BACKEND_TO_FRONTEND[v] !== undefined ? BACKEND_TO_FRONTEND[v] : v
-          );
-        } else if (typeof val === 'string' && BACKEND_TO_FRONTEND[val] !== undefined) {
-          (init[s.key] as Record<string, unknown>)[f.key] = BACKEND_TO_FRONTEND[val];
-        } else {
-          (init[s.key] as Record<string, unknown>)[f.key] = val;
-        }
-      }
-    }
-  });
-  if (!init.living?.gender) {
-    (init.living as Record<string, unknown>).gender = 'Prefer not to say';
-  }
-  // Backward compat: old profiles have `location` instead of `city`
-  const livingSection = q?.living as Record<string, unknown> | undefined;
-  if (livingSection?.location && !init.living?.city) {
-    const loc = String(livingSection.location);
-    if (CITY_OPTIONS.includes(loc)) {
-      (init.living as Record<string, unknown>).city = loc;
-    } else {
-      (init.living as Record<string, unknown>).city = 'Other';
-      (init.living as Record<string, unknown>).neighborhood = loc;
-    }
-  }
-  return init;
-}
-
 function getDefaultValues(): Q {
   const init: Q = {};
   SECTIONS.forEach(s => {
     init[s.key] = {};
-    s.fields.forEach((f: { key: string; type: string; default?: number; min?: number; options?: string[] }) => {
+    s.fields.forEach((f: { key: string; type: string; default?: number; min?: number }) => {
       if (f.type === 'multiselect') (init[s.key] as Record<string, unknown>)[f.key] = [];
       else if (f.type === 'number' || f.type === 'slider') (init[s.key] as Record<string, unknown>)[f.key] = f.default ?? f.min ?? 0;
       else (init[s.key] as Record<string, unknown>)[f.key] = '';
@@ -176,7 +118,7 @@ function getDefaultValues(): Q {
 
 export default function QuestionnairePage() {
   const navigate = useNavigate();
-  const { setUser } = useAuth();
+  const { user, updateEntry } = useEntry();
   const queryClient = useQueryClient();
   const skipNextProfileSyncRef = useRef(false);
   const [step, setStep] = useState(() => {
@@ -187,13 +129,6 @@ export default function QuestionnairePage() {
     return Math.max(0, Math.min(n, SECTIONS.length - 1));
   });
 
-  const { data: profileData, isLoading: profileLoading } = useQuery({
-    queryKey: ['profile'],
-    queryFn: () => authApi.me(),
-    staleTime: 60_000,
-    refetchOnWindowFocus: false, // Avoid refetch overwriting form when user returns to tab
-  });
-
   const form = useForm<Q>({
     defaultValues: getDefaultValues(),
     mode: 'onChange',
@@ -201,12 +136,24 @@ export default function QuestionnairePage() {
 
   const { reset, watch, handleSubmit, getValues, control, formState: { isDirty } } = form;
 
+  // Load existing questionnaire if user has one
+  useEffect(() => {
+    if (user?.questionnaire && Object.keys(user.questionnaire).length > 0 && !saveMutation.isPending && !isDirty) {
+      const q = user.questionnaire;
+      const normalized = q && typeof q === 'object' ? q : getDefaultValues();
+      reset(normalized);
+    }
+  }, [user?.questionnaire, reset, saveMutation.isPending, isDirty]);
+
   const saveMutation = useMutation({
-    mutationFn: (questionnaire: Q) => authApi.updateProfile({ questionnaire }),
+    mutationFn: async (questionnaire: Q) => {
+      if (!user) throw new Error('No user');
+      return entryApi.update(user.user_id, { questionnaire });
+    },
     onSuccess: async (_, submittedData) => {
-      const { user } = await authApi.me();
-      setUser(user);
-      queryClient.setQueryData(['profile'], { user });
+      if (!user) return;
+      const updated = await entryApi.get(user.user_id);
+      queryClient.setQueryData(['entry', user.user_id], { user: updated.user });
       reset(submittedData);
       skipNextProfileSyncRef.current = true;
       if (typeof window !== 'undefined') window.localStorage.removeItem('questionnaire_draft');
@@ -215,42 +162,7 @@ export default function QuestionnairePage() {
     onError: (e: Error) => toast.error(e.message || 'Failed to save profile'),
   });
 
-  // Load backend data into form when profile is fetched (only when not saving and no unsaved changes)
-  useEffect(() => {
-    if (!profileData?.user) return;
-    setUser(profileData.user);
-    if (saveMutation.isPending) return;
-    if (isDirty) return;
-    if (skipNextProfileSyncRef.current) {
-      skipNextProfileSyncRef.current = false;
-      return;
-    }
-    const q = profileData.user.questionnaire;
-    const normalized = q && typeof q === 'object' && Object.keys(q).length > 0
-      ? normalizeQuestionnaireForForm(q as Record<string, unknown>)
-      : getDefaultValues();
-
-    // Merge in any locally-saved draft values so mid-edit refreshes don't lose work
-    const draft = typeof window !== 'undefined' ? window.localStorage.getItem('questionnaire_draft') : null;
-    if (draft) {
-      try {
-        const parsed = JSON.parse(draft) as Q;
-        SECTIONS.forEach(s => {
-          if (parsed[s.key] && typeof parsed[s.key] === 'object') {
-            Object.entries(parsed[s.key]).forEach(([k, v]) => {
-              if (v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)) {
-                (normalized[s.key] as Record<string, unknown>)[k] = v;
-              }
-            });
-          }
-        });
-      } catch { /* ignore corrupt data */ }
-    }
-
-    reset(normalized);
-  }, [profileData?.user, reset, setUser, saveMutation.isPending, isDirty]);
-
-  // Persist draft form values to localStorage on every change so mid-edit refreshes are safe
+  // Persist draft form values to localStorage on every change
   useEffect(() => {
     if (!isDirty) return;
     const sub = watch((values) => {
@@ -304,12 +216,11 @@ export default function QuestionnairePage() {
   const next = () => {
     if (!validateStep()) return;
     const data = getValues();
-    // Navigate immediately; save runs in background
     updateStep(s => s + 1);
     saveMutation.mutate(data);
   };
   const prev = () => {
-    saveMutation.mutate(getValues()); // save in background when going back
+    saveMutation.mutate(getValues());
     updateStep(s => s - 1);
   };
 
@@ -322,10 +233,10 @@ export default function QuestionnairePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (profileData?.user?.photos) {
-      setPhotos(profileData.user.photos);
+    if (user?.photos) {
+      setPhotos(user.photos);
     }
-  }, [profileData?.user?.photos]);
+  }, [user?.photos]);
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -336,7 +247,7 @@ export default function QuestionnairePage() {
     }
     setUploadingPhotos(true);
     try {
-      const result = await photosApi.upload(files);
+      const result = await photosApi.upload(user!.user_id, files);
       setPhotos(result.photos);
       toast.success('Photos uploaded');
     } catch (err: any) {
@@ -373,16 +284,6 @@ export default function QuestionnairePage() {
       },
     });
   });
-
-  if (profileLoading) {
-    return (
-      <AppLayout>
-        <div className="mx-auto max-w-2xl flex items-center justify-center py-12 text-muted-foreground">
-          Loading profile…
-        </div>
-      </AppLayout>
-    );
-  }
 
   return (
     <AppLayout>

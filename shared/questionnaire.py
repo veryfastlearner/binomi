@@ -4,15 +4,9 @@
 # SECTION 1: LIVING PREFERENCES
 # ─────────────────────────────────────────────
 
-CITY_OPTIONS = [
-    "Boston", "Cambridge", "Somerville", "Brookline", "Allston", "Brighton",
-    "Medford", "Watertown", "Newton", "Quincy",
-    "New York", "Brooklyn", "Queens", "Manhattan", "Bronx",
-    "San Francisco", "Oakland", "Berkeley", "San Jose", "Palo Alto",
-    "Los Angeles", "Chicago", "Seattle", "Austin", "Denver",
-    "Portland", "Philadelphia", "Washington DC", "Miami", "Atlanta",
-    "Other",
-]
+from .config import TUNISIA_CITIES
+
+CITY_OPTIONS = TUNISIA_CITIES + ["Other"]
 
 LIVING_PREFERENCES = {
     "city": {
@@ -24,7 +18,7 @@ LIVING_PREFERENCES = {
     "neighborhood": {
         "question": "Neighborhood or specific area (optional)",
         "type": "text",
-        "placeholder": "e.g., South Boston, Back Bay, Downtown",
+        "placeholder": "e.g., La Marsa, Carthage, Centre Ville",
     },
     "occupation": {
         "question": "What is your occupation?",
@@ -50,25 +44,25 @@ LIVING_PREFERENCES = {
         "options": ["Month-to-month", "6-month lease", "1-year lease", "No preference"],
     },
     "budget_min": {
-        "question": "Minimum monthly budget ($)",
+        "question": "Minimum monthly budget (TND)",
         "type": "number",
-        "min": 300,
-        "max": 5000,
-        "default": 800,
+        "min": 200,
+        "max": 2000,
+        "default": 400,
         "required": True,
     },
     "budget_max": {
-        "question": "Maximum monthly budget ($)",
+        "question": "Maximum monthly budget (TND)",
         "type": "number",
-        "min": 300,
-        "max": 5000,
-        "default": 1500,
+        "min": 200,
+        "max": 2000,
+        "default": 1000,
         "required": True,
     },
     "budget_flexibility": {
         "question": "How flexible is your budget?",
         "type": "select",
-        "options": ["Hard limit — cannot go over", "Can flex up to ~$100", "Can flex up to ~$200", "Fairly flexible if the fit is right"],
+        "options": ["Hard limit — cannot go over", "Can flex up to ~50 TND", "Can flex up to ~100 TND", "Fairly flexible if the fit is right"],
         "priority_field": True,
         "required": True,
     },
@@ -247,7 +241,7 @@ LIFESTYLE_QUESTIONS = {
     "temperature_preference": {
         "question": "What's your thermostat preference at home?",
         "type": "select",
-        "options": ["Cool (below 68°F / 20°C)", "Moderate (68–72°F / 20–22°C)", "Warm (above 72°F / 22°C)", "No strong preference"]
+        "options": ["Cool (below 20°C)", "Moderate (20–22°C)", "Warm (above 22°C)", "No strong preference"]
     },
     "hobbies": {
         "question": "What are your main hobbies or interests?",
@@ -302,6 +296,8 @@ DEALBREAKER_QUESTIONS = {
             "Budget hard cap (cannot exceed max)",
             "Must be okay with my pet(s)",
             "Non-smoking household only",
+            "Halal kitchen required",
+            "Prayer space needed",
         ],
         "required": True,
         "help": "Select at least 1. These will never be compromised in matching.",

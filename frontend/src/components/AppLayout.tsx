@@ -1,23 +1,24 @@
-import { useAuth } from '@/contexts/AuthContext';
+import { useEntry } from '@/contexts/EntryContext';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { LogOut, Home, Users, MessageSquare, FileText, Bot } from 'lucide-react';
+import { LogOut, Home, Users, MessageSquare, FileText, Bot, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, setUser } = useEntry();
   const navigate = useNavigate();
   const location = useLocation();
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/login');
+    localStorage.removeItem('binomi_user_id');
+    setUser(null);
+    navigate('/');
   };
 
   const navItems = [
-    { to: '/', icon: Home, label: 'Home' },
+    { to: '/home', icon: Home, label: 'Home' },
     { to: '/questionnaire', icon: FileText, label: 'Profile' },
     { to: '/clone', icon: Bot, label: 'My Clone' },
-    { to: '/match/setup', icon: Users, label: 'Match' },
+    { to: '/match/setup', icon: Sparkles, label: 'Match' },
     { to: '/matches', icon: MessageSquare, label: 'Matches' },
   ];
 
@@ -25,9 +26,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-          <Link to="/" className="font-display text-xl font-bold text-primary flex items-center gap-2">
-            <img src="/roommate.png" alt="RoommateFinder" className="h-8 w-8 object-contain" />
-            RoommateFinder
+          <Link to="/home" className="font-display text-xl font-bold text-primary flex items-center gap-2">
+            <Sparkles size={22} className="text-primary" />
+            Binomi
           </Link>
           <nav className="hidden items-center gap-1 md:flex">
             {navItems.map((item) => (
